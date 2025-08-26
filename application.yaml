@@ -8,7 +8,7 @@ spec:
   source:
     repoURL: https://github.com/raducosminalexandru/pillmate-manifests
     targetRevision: HEAD
-    path: dev
+    path: dev #test
   destination:
     server: https://kubernetes.default.svc
     namespace: app
