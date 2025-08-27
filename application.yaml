@@ -11,7 +11,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: git@github.com:raducosminalexandru/pillmate-manifests.git
+    repoURL: https://github.com/raducosminalexandru/pillmate-manifests.git
     targetRevision: HEAD
     path: dev
     kustomize: {}
