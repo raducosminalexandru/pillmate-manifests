@@ -23,24 +23,44 @@ jobs:
         run: |
           REPO="horatiualex/pillmate"
           
+          # Try GitHub API first
           RESPONSE=$(curl -s -w "%{http_code}" \
-            -u "raducosminalexandru:${{ secrets.GHCR_PAT }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://ghcr.io/v2/${REPO}/tags/list")
+            -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/users/horatiualex/packages/container/${REPO}/versions")
           
           HTTP_CODE="${RESPONSE: -3}"
           BODY="${RESPONSE%???}"
           
           if [ "$HTTP_CODE" != "200" ]; then
-            echo "Failed to fetch package versions. HTTP Code: $HTTP_CODE"
-            echo "Response: $BODY"
-            exit 1
+            echo "GitHub API failed with HTTP Code: $HTTP_CODE"
+            echo "Trying GHCR registry API..."
+            
+            # Fallback to GHCR registry API with token
+            RESPONSE=$(curl -s -w "%{http_code}" \
+              -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" \
+              "https://ghcr.io/v2/${REPO}/tags/list")
+            
+            HTTP_CODE="${RESPONSE: -3}"
+            BODY="${RESPONSE%???}"
+            
+            if [ "$HTTP_CODE" != "200" ]; then
+              echo "Both APIs failed. HTTP Code: $HTTP_CODE"
+              echo "Response: $BODY"
+              echo "Please check your GHCR_PAT token permissions"
+              exit 1
+            fi
+            
+            # Parse registry API response
+            LATEST_TAG=$(echo "$BODY" | jq -r '.tags[]' | grep '^v' | sort -V | tail -n1)
+          else
+            # Parse GitHub API response
+            LATEST_TAG=$(echo "$BODY" | jq -r '.[0].metadata.container.tags[]' | grep '^v' | sort -V | tail -n1)
           fi
-          
-          LATEST_TAG=$(echo "$BODY" | jq -r '.tags[]' | grep '^v' | sort -V | tail -n1)
           
           if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" = "null" ]; then
             echo "No valid tags found. Exiting."
+            echo "Available response: $BODY"
             exit 1
           fi
           
