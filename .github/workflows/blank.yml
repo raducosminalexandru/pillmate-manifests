@@ -17,16 +17,26 @@ jobs:
         id: ghcr
         run: |
           REPO="horatiualex/pillmate"
-          TAGS=$(curl -s -H "Accept: application/vnd.github+json" \
-            https://ghcr.io/v2/$REPO/tags/list | jq -r '.tags[]' | grep '^v' | sort -V)
+          RESPONSE=$(curl -s -H "Accept: application/vnd.github+json" https://ghcr.io/v2/$REPO/tags/list)
+          TAGS=$(echo "$RESPONSE" | jq -r '.tags[]' | grep '^v' | sort -V)
           LATEST_TAG=$(echo "$TAGS" | tail -n1)
+
+          if [ -z "$LATEST_TAG" ]; then
+            echo "No tags found in GHCR. Exiting."
+            exit 1
+          fi
+
           echo "Latest tag from GHCR: $LATEST_TAG"
           echo "latest_tag=$LATEST_TAG" >> $GITHUB_ENV
 
       - name: Get current deployment tag
         id: current
         run: |
-          CURRENT_TAG=$(grep 'image:' dev/deployment.yaml | awk -F: '{print $3}')
+          CURRENT_TAG=$(grep 'image:' dev/deployment.yaml | sed -E 's/.*:(v[0-9]+).*/\1/')
+          if [ -z "$CURRENT_TAG" ]; then
+            echo "No current tag found in deployment.yaml. Exiting."
+            exit 1
+          fi
           echo "Current tag in deployment.yaml: $CURRENT_TAG"
           echo "current_tag=$CURRENT_TAG" >> $GITHUB_ENV
 
