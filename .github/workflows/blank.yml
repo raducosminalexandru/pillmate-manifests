@@ -18,7 +18,7 @@ jobs:
         id: ghcr
         run: |
           REPO="horatiualex/pillmate"
-          RESPONSE=$(curl -s -u "${{ github.actor }}:${{ secrets.GHCR_PAT }}" \
+          RESPONSE=$(curl -s -u "raducosminalexandru:${{ secrets.GHCR_PAT }}" \
             -H "Accept: application/vnd.github+json" \
             https://ghcr.io/v2/$REPO/tags/list)
 
