@@ -16,6 +16,6 @@ spec:
     spec:
       containers:
       - name: pillmate
-        image: ghcr.io/horatiualex/pillmate:v28
+        image: ghcr.io/raducosminalexandru/pillmate:v5
         ports:
         - containerPort: 3000
