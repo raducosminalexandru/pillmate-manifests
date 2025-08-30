@@ -13,12 +13,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Get latest image tag
+      - name: Get latest image tag from GHCR
         id: ghcr
         run: |
           REPO="horatiualex/pillmate"
-          RESPONSE=$(curl -s -H "Accept: application/vnd.github+json" https://ghcr.io/v2/$REPO/tags/list)
-          TAGS=$(echo "$RESPONSE" | jq -r '.tags[]' | grep '^v' | sort -V)
+          RESPONSE=$(curl -s -u "${{ github.actor }}:${{ secrets.GHCR_PAT }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://ghcr.io/v2/$REPO/tags/list)
+
+          TAGS=$(echo "$RESPONSE" | jq -r '.tags[]' 2>/dev/null | grep '^v' | sort -V)
           LATEST_TAG=$(echo "$TAGS" | tail -n1)
 
           if [ -z "$LATEST_TAG" ]; then
