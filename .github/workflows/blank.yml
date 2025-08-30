@@ -23,11 +23,10 @@ jobs:
         run: |
           REPO="horatiualex/pillmate"
           
-          # Get the latest tag with better error handling
           RESPONSE=$(curl -s -w "%{http_code}" \
             -u "raducosminalexandru:${{ secrets.GHCR_PAT }}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/user/packages/container/$REPO/versions?per_page=1")
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://ghcr.io/v2/${REPO}/tags/list")
           
           HTTP_CODE="${RESPONSE: -3}"
           BODY="${RESPONSE%???}"
@@ -38,8 +37,7 @@ jobs:
             exit 1
           fi
           
-          # Extract the latest tag from the API response
-          LATEST_TAG=$(echo "$BODY" | jq -r '.[0].metadata.container.tags[]' | grep '^v' | sort -V | tail -n1)
+          LATEST_TAG=$(echo "$BODY" | jq -r '.tags[]' | grep '^v' | sort -V | tail -n1)
           
           if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" = "null" ]; then
             echo "No valid tags found. Exiting."
@@ -81,10 +79,8 @@ jobs:
           
           echo "Updating deployment.yaml from $CURRENT_TAG to $LATEST_TAG"
           
-          # More precise sed replacement to avoid partial matches
           sed -i "s|ghcr.io/horatiualex/pillmate:${CURRENT_TAG}|ghcr.io/horatiualex/pillmate:${LATEST_TAG}|g" dev/deployment.yaml
           
-          # Verify the change was made
           if grep -q "$LATEST_TAG" dev/deployment.yaml; then
             echo "✅ Successfully updated deployment.yaml"
             cat dev/deployment.yaml | grep "image:"
