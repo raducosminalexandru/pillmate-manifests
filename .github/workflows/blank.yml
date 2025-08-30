@@ -2,59 +2,113 @@ name: Update Deployment with Latest Image
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
+  repository_dispatch:
+    types: [new-image-published]
 
 jobs:
   update-image:
     runs-on: ubuntu-latest
     environment: deploy
-
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Get latest image tag from GHCR
         id: ghcr
         run: |
           REPO="horatiualex/pillmate"
-          RESPONSE=$(curl -s -u "raducosminalexandru:${{ secrets.GHCR_PAT }}" \
+          
+          # Get the latest tag with better error handling
+          RESPONSE=$(curl -s -w "%{http_code}" \
+            -u "raducosminalexandru:${{ secrets.GHCR_PAT }}" \
             -H "Accept: application/vnd.github+json" \
-            https://ghcr.io/v2/$REPO/tags/list)
-
-          TAGS=$(echo "$RESPONSE" | jq -r '.tags[]' 2>/dev/null | grep '^v' | sort -V)
-          LATEST_TAG=$(echo "$TAGS" | tail -n1)
-
-          if [ -z "$LATEST_TAG" ]; then
-            echo "No tags found in GHCR. Exiting."
+            "https://api.github.com/user/packages/container/$REPO/versions?per_page=1")
+          
+          HTTP_CODE="${RESPONSE: -3}"
+          BODY="${RESPONSE%???}"
+          
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Failed to fetch package versions. HTTP Code: $HTTP_CODE"
+            echo "Response: $BODY"
             exit 1
           fi
-
+          
+          # Extract the latest tag from the API response
+          LATEST_TAG=$(echo "$BODY" | jq -r '.[0].metadata.container.tags[]' | grep '^v' | sort -V | tail -n1)
+          
+          if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" = "null" ]; then
+            echo "No valid tags found. Exiting."
+            exit 1
+          fi
+          
           echo "Latest tag from GHCR: $LATEST_TAG"
-          echo "latest_tag=$LATEST_TAG" >> $GITHUB_ENV
+          echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
 
       - name: Get current deployment tag
         id: current
         run: |
-          CURRENT_TAG=$(grep 'image:' dev/deployment.yaml | sed -E 's/.*:(v[0-9]+).*/\1/')
+          CURRENT_TAG=$(grep 'image:.*ghcr.io' dev/deployment.yaml | sed -E 's/.*:(v[0-9]+[^[:space:]]*).*/\1/')
+          
           if [ -z "$CURRENT_TAG" ]; then
             echo "No current tag found in deployment.yaml. Exiting."
             exit 1
           fi
+          
           echo "Current tag in deployment.yaml: $CURRENT_TAG"
-          echo "current_tag=$CURRENT_TAG" >> $GITHUB_ENV
+          echo "current_tag=$CURRENT_TAG" >> $GITHUB_OUTPUT
+
+      - name: Compare versions and set update flag
+        id: compare
+        run: |
+          if [ "${{ steps.ghcr.outputs.latest_tag }}" != "${{ steps.current.outputs.current_tag }}" ]; then
+            echo "Update needed: ${{ steps.current.outputs.current_tag }} -> ${{ steps.ghcr.outputs.latest_tag }}"
+            echo "needs_update=true" >> $GITHUB_OUTPUT
+          else
+            echo "No update needed. Current version is latest."
+            echo "needs_update=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Update deployment.yaml
-        if: env.latest_tag != env.current_tag
+        if: steps.compare.outputs.needs_update == 'true'
         run: |
+          CURRENT_TAG="${{ steps.current.outputs.current_tag }}"
+          LATEST_TAG="${{ steps.ghcr.outputs.latest_tag }}"
+          
           echo "Updating deployment.yaml from $CURRENT_TAG to $LATEST_TAG"
-          sed -i "s/${CURRENT_TAG}/${LATEST_TAG}/" dev/deployment.yaml
+          
+          # More precise sed replacement to avoid partial matches
+          sed -i "s|ghcr.io/horatiualex/pillmate:${CURRENT_TAG}|ghcr.io/horatiualex/pillmate:${LATEST_TAG}|g" dev/deployment.yaml
+          
+          # Verify the change was made
+          if grep -q "$LATEST_TAG" dev/deployment.yaml; then
+            echo "✅ Successfully updated deployment.yaml"
+            cat dev/deployment.yaml | grep "image:"
+          else
+            echo "❌ Failed to update deployment.yaml"
+            exit 1
+          fi
+
+      - name: Commit and push changes
+        if: steps.compare.outputs.needs_update == 'true'
+        run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          
           git add dev/deployment.yaml
-          git commit -m "Update image to ${LATEST_TAG}"
+          git commit -m "🚀 Update image to ${{ steps.ghcr.outputs.latest_tag }}"
           git push
 
+      - name: Send notification on update
+        if: steps.compare.outputs.needs_update == 'true'
+        run: |
+          echo "🎉 Successfully updated deployment from ${{ steps.current.outputs.current_tag }} to ${{ steps.ghcr.outputs.latest_tag }}"
+
       - name: No update needed
-        if: env.latest_tag == env.current_tag
-        run: echo "Deployment.yaml already up-to-date."
+        if: steps.compare.outputs.needs_update == 'false'
+        run: |
+          echo "✅ Deployment.yaml is already up-to-date with version ${{ steps.current.outputs.current_tag }}"
